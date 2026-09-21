@@ -1,0 +1,381 @@
+{
+  "name": "Daily sales report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "daily-report",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a509e995-29d4-48a0-9f60-6bd397a86d32",
+      "name": "Report was asked for",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b2000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// requested report date\nconst date = $input.first().json.body.date;\n\n// Kuala Lumpur is UTC+8.\n// 00:00 in Kuala Lumpur = 16:00 UTC on the previous day.\nconst localMidnight = new Date(`${date}T00:00:00+08:00`);\n\n// Convert the start and end of kl to UTC+8\nconst from = localMidnight.toISOString();\nconst to = new Date(\n  localMidnight.getTime() + 24 * 60 * 60 * 1000\n).toISOString();\n\nreturn [{\n  json: {\n    date,\n    from,\n    to\n  }\n}];"
+      },
+      "id": "6249e4bf-24b8-4cfd-ba8e-a96dafffa228",
+      "name": "Work out the day",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://mock-api:4100/orders",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{ $('Work out the day').first().json.from }}"
+            },
+            {
+              "name": "to",
+              "value": "={{ $('Work out the day').first().json.to }}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "923f96e6-11a9-4307-b007-71b1a41d5602",
+      "name": "Get the orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pages = $input.all();\n\n// Combine all orders from all pages\nconst orders = [];\n\nfor (const page of pages) {\n  orders.push(...page.json.data);\n}\n\n// Get exchange rates from the earlier rates node\nconst rates = $('get rates1').first().json.rates;\n\nlet totalMyr = 0;\n\nfor (const order of orders) {\n  const rate = rates[order.currency];\n\n  if (rate === undefined) {\n    throw new Error(`Missing exchange rate for ${order.currency}`);\n  }\n\n  totalMyr += order.amount * rate;\n}\n\n// Get original requested date\nconst date = $('Work out the day').first().json.date;\n\nreturn [{\n  json: {\n    date,\n    order_count: orders.length,\n    total_myr: Math.round(totalMyr * 100) / 100\n  }\n}];"
+      },
+      "id": "986e2f58-4c2d-4be2-b26b-059077e7217f",
+      "name": "Add the day up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://mock-api:4100/report",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b5b0d212-df4c-4e8c-8b40-28af990aff63",
+      "name": "Send the report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\nconst day = $('Work out the day').first().json;\n\nconst pages = [];\n\nfor (let page = 1; page <= response.total_pages; page++) {\n  pages.push({\n    json: {\n      page,\n      from: day.from,\n      to: day.to\n    }\n  });\n}\n\nreturn pages;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -16
+      ],
+      "id": "6d4561d4-8af5-412d-87ce-6699e07673cc",
+      "name": "create page request"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/orders",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{$json.from}}"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.to}}"
+            },
+            {
+              "name": "page",
+              "value": "={{$json.page}}"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1088,
+        -16
+      ],
+      "id": "f0866137-2a84-4001-89ef-b006c07cd0c0",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/rates",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        432,
+        -16
+      ],
+      "id": "9549b2d8-6181-4d74-9dff-ffad5e5ff843",
+      "name": "get rates1"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/report",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "189e81e5-dc0b-4139-b5c6-59e8ca27a48c",
+      "name": "get exixting report"
+    },
+    {
+      "parameters": {
+        "jsCode": "const existing = $input.first().json.data;\n\n// Get the report we calculated earlier\nconst newReport = $('Add the day up').first().json;\n\n// See whether this date already exists\nconst alreadyExists = existing.some(\n  report => report.date === newReport.date\n);\n\nreturn [{\n  json: {\n    ...newReport,\n    alreadyExists\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "50fa8278-4d92-4d2a-99f8-14e406cdeeaf",
+      "name": "Check if report exists"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e1277fc9-1422-4e06-876d-42a605f994ff",
+              "leftValue": "={{ $json.alreadyExists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2032,
+        0
+      ],
+      "id": "551e39d4-9669-416f-a061-3078b9a8ccf9",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $('Add the day up').first().json;\n\nreturn [{\n  json: report\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -208
+      ],
+      "id": "93659b79-c9f3-47d1-b259-d224639b03b2",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Report was asked for": {
+      "main": [
+        [
+          {
+            "node": "Work out the day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Work out the day": {
+      "main": [
+        [
+          {
+            "node": "get rates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get the orders": {
+      "main": [
+        [
+          {
+            "node": "create page request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add the day up": {
+      "main": [
+        [
+          {
+            "node": "get exixting report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create page request": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Add the day up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get rates1": {
+      "main": [
+        [
+          {
+            "node": "Get the orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get exixting report": {
+      "main": [
+        [
+          {
+            "node": "Check if report exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if report exists": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send the report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send the report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "255e5810-1d25-458b-b58f-fdec202517c6",
+  "meta": {
+    "instanceId": "237f6d72502b3d546493beca1a6c8b898ed64bb0e1c2d525a5705987fb5efb54"
+  },
+  "nodeGroups": [],
+  "id": "lksukODJX11iHD3u",
+  "tags": []
+}
