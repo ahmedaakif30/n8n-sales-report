@@ -1,0 +1,649 @@
+{
+  "name": "Backfilll sales report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "backfill",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -64,
+        192
+      ],
+      "id": "4c049565-dbbc-49ff-b9b9-a583e721a50a",
+      "name": "Webhook",
+      "webhookId": "3aad94bd-ce0f-4345-8ee8-ce8ebc8a015e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $('Webhook').first().json.body;\n\nconst from = body.from;\nconst to = body.to;\n\nconst [fromYear, fromMonth, fromDay] = from.split('-').map(Number);\nconst [toYear, toMonth, toDay] = to.split('-').map(Number);\n\nlet current = new Date(Date.UTC(fromYear, fromMonth - 1, fromDay));\nconst end = new Date(Date.UTC(toYear, toMonth - 1, toDay));\n\nconst dates = [];\n\nwhile (current <= end) {\n  dates.push({\n    json: {\n      date: current.toISOString().slice(0, 10)\n    }\n  });\n\n  current.setUTCDate(current.getUTCDate() + 1);\n}\n\nreturn dates;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        192
+      ],
+      "id": "610ec292-318e-4d69-b0a5-a47379b83f2a",
+      "name": "genrate dates"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/report",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        160,
+        192
+      ],
+      "id": "25f18890-9cf1-4ad2-8802-0b844f7fb2a6",
+      "name": "Get existing reports"
+    },
+    {
+      "parameters": {
+        "jsCode": "const dates = $input.all();\n\n// Reports already stored by the mock API\nconst existingReports =\n  $('Get existing reports').first().json.data || [];\n\nreturn dates.map(item => {\n  const date = item.json.date;\n\n  const exists = existingReports.some(\n    report => report.date === date\n  );\n\n  return {\n    json: {\n      date,\n      exists\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        192
+      ],
+      "id": "e2aaad3f-0798-4ff9-b420-637f5926319b",
+      "name": "check existing date"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cf28bb6f-156d-4bbd-91b5-357bb17ce924",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        832,
+        192
+      ],
+      "id": "fe754c13-d4e4-4453-afd9-ea83083848df",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({\n  json: {\n    status: \"skipped\",\n    date: item.json.date,\n    reason: \"report already exists\"\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        -96
+      ],
+      "id": "e2d8fe8f-953a-4589-a3d8-50007d5ebc8e",
+      "name": "Mark skipped existing"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const date = item.json.date;\n\n  // Midnight in Kuala Lumpur is UTC+8\n  const start = new Date(`${date}T00:00:00+08:00`);\n\n  const from = start.toISOString();\n  const to = new Date(\n    start.getTime() + 24 * 60 * 60 * 1000\n  ).toISOString();\n\n  return {\n    json: {\n      date,\n      from,\n      to\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        288
+      ],
+      "id": "f563327c-0e47-4942-9024-f4c407a7be66",
+      "name": "Prepare missing day"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/orders",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{$json.from}}"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.to}}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "per page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1280,
+        288
+      ],
+      "id": "71be3ea8-a4ab-4f8a-b71f-9197450a6123",
+      "name": "Get first order page",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1a4a0328-a264-44bd-a20b-37685c50f0d1",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1728,
+        384
+      ],
+      "id": "037178ba-85de-45ca-936a-d6cf3b196b23",
+      "name": "zero order?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const date = $('Prepare missing day').item.json.date;\n\nreturn [{\n  json: {\n    status: \"skipped\",\n    date,\n    reason: \"no orders for this day\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        288
+      ],
+      "id": "be3a18f4-5d8c-4841-a94e-b6ec2d562ea4",
+      "name": "Mark skipped zero orders"
+    },
+    {
+      "parameters": {
+        "jsCode": "const firstPage = $input.first().json;\n\n// Recover the date + boundaries from the matching input item\nconst source = $('Prepare missing day').item.json;\n\nconst pages = [];\n\nfor (let page = 1; page <= firstPage.total_pages; page++) {\n  pages.push({\n    json: {\n      date: source.date,\n      from: source.from,\n      to: source.to,\n      page\n    }\n  });\n}\n\nreturn pages;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        480
+      ],
+      "id": "44db7929-35ba-4803-91f4-f0834a359b7c",
+      "name": "Create page requests"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/orders",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "=from",
+              "value": "={{$json.from}}"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.to}}"
+            },
+            {
+              "name": "page",
+              "value": "={{$json.page}}"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2176,
+        480
+      ],
+      "id": "78ed5e40-c0c9-4d96-b9aa-41f9400fb97e",
+      "name": "get all orders",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/rates",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2400,
+        480
+      ],
+      "id": "10ff2565-97a4-40ac-9734-8117211b0104",
+      "name": "get rates",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get every order page that was fetched\nconst pages = $('get all orders').all();\n\n// Combine all orders from all pages\nconst orders = [];\n\nfor (const page of pages) {\n  orders.push(...page.json.data);\n}\n\n// Rates come from the current input\nconst rates = $input.first().json.rates;\n\nlet totalMyr = 0;\n\nfor (const order of orders) {\n  const rate = rates[order.currency];\n\n  if (rate === undefined) {\n    throw new Error(`Missing exchange rate for ${order.currency}`);\n  }\n\n  totalMyr += order.amount * rate;\n}\n\n// Get the date from the page request node\nconst date = $('Create page requests').first().json.date;\n\nreturn [{\n  json: {\n    date,\n    order_count: orders.length,\n    total_myr: Math.round(totalMyr * 100) / 100\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        480
+      ],
+      "id": "de6f83ba-c762-4acf-9ed0-4f765c8498ee",
+      "name": "Calculate backfill report"
+    },
+    {
+      "parameters": {
+        "url": "http://mock-api:4100/report",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "=date",
+              "value": "={{$json.date}}"
+            },
+            {
+              "name": "order_count",
+              "value": "={{$json.order_count}}"
+            },
+            {
+              "name": "total_myr",
+              "value": "={{$json.total_myr}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2848,
+        480
+      ],
+      "id": "751663a6-3fbd-4cf0-88bf-cf563ccacfed",
+      "name": "post backfill report"
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $('Calculate backfill report').first().json;\n\nreturn [{\n  json: {\n    status: \"filled\",\n    date: report.date\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        480
+      ],
+      "id": "b6c5bc10-065e-417b-bef8-6c6a9a60ee6a",
+      "name": "mark filled"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Try to recover the failed date from the error text\nlet failedDate = null;\n\nif (input.error?.message) {\n  const match = input.error.message.match(/\\d{4}-\\d{2}-\\d{2}/);\n  if (match) {\n    failedDate = match[0];\n  }\n}\n\nreturn [{\n  json: {\n    status: \"failed\",\n    date: failedDate,\n    reason: \"orders API request failed\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        96
+      ],
+      "id": "aa76647a-0107-4177-9bcf-020ea6e85f0e",
+      "name": "mark failed"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3296,
+        160
+      ],
+      "id": "d89449ef-5118-4fa0-8440-28165110454d",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all().map(item => item.json);\n\nconst filled = [];\nconst skipped = [];\nconst failed = [];\n\nfor (const result of results) {\n\n  if (result.status === 'filled') {\n    filled.push(result.date);\n  }\n\n  if (result.status === 'skipped') {\n    skipped.push({\n      date: result.date,\n      reason: result.reason\n    });\n  }\n\n  if (result.status === 'failed') {\n    failed.push({\n      date: result.date,\n      reason: result.reason\n    });\n  }\n\n}\n\nreturn [{\n  json: {\n    filled,\n    skipped,\n    failed\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        192
+      ],
+      "id": "8be72a57-298a-4a15-98e6-cb83ec9115e9",
+      "name": "build summary"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "02ae7595-ae5f-4d77-b6d8-7b179a682f30",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1504,
+        288
+      ],
+      "id": "8a805b4c-fa7f-416e-9e22-d7e0b17e4336",
+      "name": "request failed?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get existing reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "genrate dates": {
+      "main": [
+        [
+          {
+            "node": "check existing date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get existing reports": {
+      "main": [
+        [
+          {
+            "node": "genrate dates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check existing date": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Mark skipped existing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare missing day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare missing day": {
+      "main": [
+        [
+          {
+            "node": "Get first order page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get first order page": {
+      "main": [
+        [
+          {
+            "node": "request failed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "zero order?": {
+      "main": [
+        [
+          {
+            "node": "Mark skipped zero orders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create page requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create page requests": {
+      "main": [
+        [
+          {
+            "node": "get all orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get all orders": {
+      "main": [
+        [
+          {
+            "node": "get rates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "get rates": {
+      "main": [
+        [
+          {
+            "node": "Calculate backfill report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate backfill report": {
+      "main": [
+        [
+          {
+            "node": "post backfill report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "post backfill report": {
+      "main": [
+        [
+          {
+            "node": "mark filled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mark failed": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "mark filled": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark skipped zero orders": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Mark skipped existing": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "build summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "request failed?": {
+      "main": [
+        [
+          {
+            "node": "mark failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "zero order?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "73fe2a8f-9cb3-45ac-8a99-396fdb8141cf",
+  "meta": {
+    "instanceId": "237f6d72502b3d546493beca1a6c8b898ed64bb0e1c2d525a5705987fb5efb54"
+  },
+  "nodeGroups": [],
+  "id": "GARv0wvDPJCKpgyf",
+  "tags": []
+}
